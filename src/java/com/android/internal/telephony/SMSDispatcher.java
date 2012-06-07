@@ -426,6 +426,12 @@ public abstract class SMSDispatcher extends Handler {
         SmsTracker tracker = (SmsTracker) ar.userObj;
         PendingIntent sentIntent = tracker.mSentIntent;
 
+        if (ar.result != null) {
+            tracker.mMessageRef = ((SmsResponse)ar.result).messageRef;
+        } else {
+            Log.d(TAG, "SmsResponse was null");
+        }
+
         if (ar.exception == null) {
             if (false) {
                 Log.d(TAG, "SMS send complete. Broadcasting "
@@ -434,8 +440,6 @@ public abstract class SMSDispatcher extends Handler {
 
             if (tracker.mDeliveryIntent != null) {
                 // Expecting a status report.  Add it to the list.
-                int messageRef = ((SmsResponse)ar.result).messageRef;
-                tracker.mMessageRef = messageRef;
                 deliveryPendingList.add(tracker);
             }
 
