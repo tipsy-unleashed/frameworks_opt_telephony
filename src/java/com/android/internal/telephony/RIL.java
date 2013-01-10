@@ -2114,7 +2114,8 @@ public class RIL extends BaseCommands implements CommandsInterface {
             case 7:
             case 8:
             case 9:
-            case 10: state = RadioState.RADIO_ON; break;
+            case 10:
+            case 13: state = RadioState.RADIO_ON; break;
 
             default:
                 throw new RuntimeException(
@@ -3483,15 +3484,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
     protected Object
     responseSignalStrength(Parcel p) {
-        SignalStrength signalStrength;
-        if (needsOldRilFeature("signalstrength")) {
-            int gsmSignal  = p.readInt();
-            int gsmErrRate = p.readInt();
-            signalStrength = new SignalStrength(gsmSignal, gsmErrRate,
-                                                -1, -1, -1, -1, -1, true);
-        } else {
-            signalStrength = new SignalStrength(p);
-        }
+        SignalStrength signalStrength = new SignalStrength(p);
         return signalStrength;
     }
 
