@@ -675,7 +675,7 @@ public class ImsPhoneConnection extends Connection {
         boolean updateExtras = updateExtras(imsCall);
         boolean updateMediaCapabilities = updateMediaCapabilities(imsCall);
 
-        return updateParent || updateWifiState || updateAddressDisplay || updateMediaCapabilities
+        return updateParent || updateMediaCapabilities || updateWifiState || updateAddressDisplay
                 || updateExtras;
     }
 
