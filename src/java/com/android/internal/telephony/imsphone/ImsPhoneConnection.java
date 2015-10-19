@@ -673,10 +673,8 @@ public class ImsPhoneConnection extends Connection {
         boolean updateWifiState = updateWifiState();
         boolean updateAddressDisplay = updateAddressDisplay(imsCall);
         boolean updateExtras = updateExtras(imsCall);
-        boolean updateMediaCapabilities = updateMediaCapabilities(imsCall);
 
-        return updateParent || updateMediaCapabilities || updateWifiState || updateAddressDisplay
-                || updateExtras;
+        return updateParent || updateWifiState || updateAddressDisplay || updateExtras;
     }
 
     @Override
