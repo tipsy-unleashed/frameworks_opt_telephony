@@ -1688,7 +1688,8 @@ public class DcTracker extends DcTrackerBase {
                 // can declare the DUN APN sharable by default traffic, thus still satisfying
                 // those requests and not torn down organically.
                 if ((apnContext.getApnType() == PhoneConstants.APN_TYPE_DUN && teardownForDun())
-                        || apnContext.getState() != DctConstants.State.CONNECTED) {
+                        || apnContext.getState() != DctConstants.State.CONNECTED
+                        || mPhone.getSubId() != SubscriptionManager.getDefaultDataSubId() ) {
                     cleanup = true;
                 } else {
                     cleanup = false;
