@@ -749,17 +749,19 @@ public final class RIL extends BaseCommands implements CommandsInterface {
         send(rr);
     }
 
-    public void setUiccSubscription(int appIndex, boolean activate, Message result) {
+    public void setUiccSubscription(int slotId, int appIndex, int subId,
+            int subStatus, Message result) {
         //Note: This RIL request is also valid for SIM and RUIM (ICC card)
         RILRequest rr = RILRequest.obtain(RIL_REQUEST_SET_UICC_SUBSCRIPTION, result);
 
         if (RILJ_LOGD) riljLog(rr.serialString() + "> " + requestToString(rr.mRequest)
-                + " appIndex: " + appIndex + " activate: " + activate);
+                + " slot: " + slotId + " appIndex: " + appIndex
+                + " subId: " + subId + " subStatus: " + subStatus);
 
-        rr.mParcel.writeInt(mInstanceId);
+        rr.mParcel.writeInt(slotId);
         rr.mParcel.writeInt(appIndex);
-        rr.mParcel.writeInt(mInstanceId);
-        rr.mParcel.writeInt(activate ? 1 : 0);
+        rr.mParcel.writeInt(subId);
+        rr.mParcel.writeInt(subStatus);
 
         send(rr);
     }
