@@ -161,6 +161,7 @@ public final class ImsPhoneCallTracker extends CallTracker {
     private static final int EVENT_HANGUP_PENDINGMO = 18;
     private static final int EVENT_RESUME_BACKGROUND = 19;
     private static final int EVENT_DIAL_PENDINGMO = 20;
+    private static final int EVENT_EXIT_ECBM_BEFORE_PENDINGMO = 21;
 
     private static final int TIMEOUT_HANGUP_PENDINGMO = 500;
 
@@ -310,8 +311,7 @@ public final class ImsPhoneCallTracker extends CallTracker {
     synchronized Connection
     dial(String dialString, int clirMode, int videoState, Bundle intentExtras)
             throws CallStateException {
-        boolean isPhoneInEcmMode = SystemProperties.getBoolean(
-                TelephonyProperties.PROPERTY_INECM_MODE, false);
+        boolean isPhoneInEcmMode = isPhoneInEcbMode();
         boolean isEmergencyNumber = PhoneNumberUtils.isEmergencyNumber(dialString);
 
         if (DBG) log("dial clirMode=" + clirMode);
@@ -1145,6 +1145,28 @@ public final class ImsPhoneCallTracker extends CallTracker {
     }
 
     /**
+     * @return true if the phone is in Emergency Callback mode, otherwise false
+     */
+    private boolean isPhoneInEcbMode() {
+        return SystemProperties.getBoolean(TelephonyProperties.PROPERTY_INECM_MODE, false);
+    }
+
+    /**
+     * Before dialing pending MO request, check for the Emergency Callback mode.
+     * If device is in Emergency callback mode, then exit the mode before dialing pending MO.
+     */
+    private void dialPendingMO() {
+        boolean isPhoneInEcmMode = isPhoneInEcbMode();
+        boolean isEmergencyNumber = PhoneNumberUtils.isEmergencyNumber(
+                mPendingMO.getOrigDialString());
+        if ((!isPhoneInEcmMode) || (isPhoneInEcmMode && isEmergencyNumber)) {
+            sendEmptyMessage(EVENT_DIAL_PENDINGMO);
+        } else {
+            sendEmptyMessage(EVENT_EXIT_ECBM_BEFORE_PENDINGMO);
+        }
+    }
+
+    /**
      * Listen to the IMS call state change
      */
     private ImsCall.Listener mImsCallListener = new ImsCall.Listener() {
@@ -1276,7 +1298,7 @@ public final class ImsPhoneCallTracker extends CallTracker {
                         //only the first callback reaches here
                         //otherwise the oldState is already HOLDING
                         if (mPendingMO != null) {
-                            sendEmptyMessage(EVENT_DIAL_PENDINGMO);
+                            dialPendingMO();
                         }
 
                         // In this case there will be no call resumed, so we can assume that we
@@ -1298,7 +1320,7 @@ public final class ImsPhoneCallTracker extends CallTracker {
                 if (reasonInfo.getCode() == ImsReasonInfo.CODE_LOCAL_CALL_TERMINATED) {
                     // disconnected while processing hold
                     if (mPendingMO != null) {
-                        sendEmptyMessage(EVENT_DIAL_PENDINGMO);
+                        dialPendingMO();
                     }
                 } else if (bgState == ImsPhoneCall.State.ACTIVE) {
                     mForegroundCall.switchWith(mBackgroundCall);
@@ -1763,6 +1785,22 @@ public final class ImsPhoneCallTracker extends CallTracker {
                 dialInternal(mPendingMO, mClirMode, mPendingCallVideoState,
                         mPendingIntentExtras);
                 mPendingIntentExtras = null;
+                break;
+
+            case EVENT_EXIT_ECBM_BEFORE_PENDINGMO:
+                if (mPendingMO != null) {
+                    //Send ECBM exit request
+                    try {
+                        getEcbmInterface().exitEmergencyCallbackMode();
+                        mPhone.setOnEcbModeExitResponse(this, EVENT_EXIT_ECM_RESPONSE_CDMA, null);
+                        pendingCallClirMode = mClirMode;
+                        pendingCallInEcm = true;
+                    } catch (ImsException e) {
+                        e.printStackTrace();
+                        mPendingMO.setDisconnectCause(DisconnectCause.ERROR_UNSPECIFIED);
+                        sendEmptyMessageDelayed(EVENT_HANGUP_PENDINGMO, TIMEOUT_HANGUP_PENDINGMO);
+                    }
+                }
                 break;
 
             case EVENT_EXIT_ECM_RESPONSE_CDMA:
