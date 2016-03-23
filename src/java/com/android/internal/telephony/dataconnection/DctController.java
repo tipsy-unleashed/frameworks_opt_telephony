@@ -574,6 +574,7 @@ public class DctController extends Handler {
             if (requestInfo.priority > priority) {
                 priority = requestInfo.priority;
                 topSubId = requestInfo.request.networkCapabilities.getNetworkSpecifier();
+                retRequestInfo = requestInfo;
             } else if (priority == requestInfo.priority) {
                 if (requestInfo.executedPhoneId == activePhoneId) {
                     topSubId = requestInfo.request.networkCapabilities.getNetworkSpecifier();

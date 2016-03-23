@@ -454,8 +454,7 @@ public class DcSwitchStateMachine extends StateMachine {
                     if (DBG) log("AttachedState: REQ_CONNECT, apnRequest=" + apnRequest);
 
                     int dataRat = mPhone.getServiceState().getRilDataRadioTechnology();
-                    if (dataRat == ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN &&
-                             DctController.getInstance().isDdsSwitchNeeded()) {
+                    if (dataRat == ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN) {
                         SubscriptionController subController = SubscriptionController.getInstance();
                         int ddsSubId = subController.getDefaultDataSubId();
                         int ddsPhoneId = subController.getPhoneId(ddsSubId);
