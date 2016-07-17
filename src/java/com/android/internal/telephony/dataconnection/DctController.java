@@ -32,7 +32,6 @@ import android.os.Message;
 import android.os.Messenger;
 import android.provider.Settings;
 import android.telephony.Rlog;
-import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.SubscriptionManager.OnSubscriptionsChangedListener;
 import android.text.TextUtils;
@@ -45,12 +44,16 @@ import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneProxy;
 import com.android.internal.telephony.SubscriptionController;
 import com.android.internal.telephony.dataconnection.DcSwitchAsyncChannel.RequestInfo;
+import com.android.internal.telephony.uicc.IccCardStatus;
+import com.android.internal.telephony.uicc.UiccCard;
+import com.android.internal.telephony.uicc.UiccController;
 import com.android.internal.util.AsyncChannel;
 import com.android.internal.util.IndentingPrintWriter;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayDeque;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map.Entry;
@@ -91,6 +94,9 @@ public class DctController extends Handler {
     protected SubscriptionController mSubController = SubscriptionController.getInstance();
 
     private SubscriptionManager mSubMgr;
+
+    protected AtomicBoolean[] mIsDataAllowed;
+    protected AtomicBoolean mNeedsDdsSwitch = new AtomicBoolean(false);
 
     private OnSubscriptionsChangedListener mOnSubscriptionsChangedListener =
             new OnSubscriptionsChangedListener() {
@@ -232,9 +238,16 @@ public class DctController extends Handler {
         mNetworkFactoryMessenger = new Messenger[mPhoneNum];
         mNetworkFactory = new NetworkFactory[mPhoneNum];
         mNetworkFilter = new NetworkCapabilities[mPhoneNum];
+        mIsDataAllowed = new AtomicBoolean[mPhoneNum];
 
         for (int i = 0; i < mPhoneNum; ++i) {
             int phoneId = i;
+            if (mPhoneNum == 1) {
+                // For single SIM mode allow data by default
+                mIsDataAllowed[i] = new AtomicBoolean(true);
+            } else {
+                mIsDataAllowed[i] = new AtomicBoolean(false);
+            }
             mDcSwitchStateMachine[i] = new DcSwitchStateMachine(mPhones[i],
                     "DcSwitchStateMachine-" + phoneId, phoneId);
             mDcSwitchStateMachine[i].start();
@@ -393,7 +406,12 @@ public class DctController extends Handler {
                 + ", activePhoneId=" + activePhoneId);
 
         if (requestedPhoneId == INVALID_PHONE_INDEX) {
-            // we have no network request - don't bother with this
+            // either we have no network request
+            // or there is no valid subscription at the moment
+            if (activePhoneId != INVALID_PHONE_INDEX) {
+                // detatch so we can try connecting later
+                mDcSwitchAsyncChannel[activePhoneId].disconnectAll();
+            }
             return;
         }
 
@@ -515,7 +533,7 @@ public class DctController extends Handler {
     protected void onSettingsChanged() {
         //Sub Selection
         int dataSubId = mSubController.getDefaultDataSubId();
-
+        mNeedsDdsSwitch.set(true);
         int activePhoneId = -1;
         for (int i=0; i<mDcSwitchStateMachine.length; i++) {
             if (!mDcSwitchAsyncChannel[i].isIdleSync()) {
@@ -542,17 +560,37 @@ public class DctController extends Handler {
         int priority = -1;
         int subId;
 
+        int activePhoneId = -1;
+        for (int i = 0; i < mDcSwitchStateMachine.length; i++) {
+            if (!mDcSwitchAsyncChannel[i].isIdleSync()) {
+                activePhoneId = i;
+                break;
+            }
+        }
+
         for (RequestInfo requestInfo : mRequestInfos.values()) {
             logd("getTopPriorityRequestPhoneId requestInfo=" + requestInfo);
             if (requestInfo.priority > priority) {
                 priority = requestInfo.priority;
                 topSubId = requestInfo.request.networkCapabilities.getNetworkSpecifier();
+            } else if (priority == requestInfo.priority) {
+                if (requestInfo.executedPhoneId == activePhoneId) {
+                    topSubId = requestInfo.request.networkCapabilities.getNetworkSpecifier();
+                }
             }
         }
         if (TextUtils.isEmpty(topSubId)) {
             subId = mSubController.getDefaultDataSubId();
         } else {
             subId = Integer.parseInt(topSubId);
+            if (apnForNetworkRequest(retRequestInfo.request).equals(
+                    PhoneConstants.APN_TYPE_IMS) && mNeedsDdsSwitch.get()) {
+                logd("getTopPriorityRequestPhoneId: ims request, use dds phone id");
+                subId = mSubController.getDefaultDataSubId();
+            } else if (subId != mSubController.getDefaultDataSubId()) {
+                logd("getTopPriorityRequestPhoneId: Request needs Dds switch");
+                mNeedsDdsSwitch.set(true);
+            }
         }
         final int phoneId = mSubController.getPhoneId(subId);
         if (phoneId == DEFAULT_PHONE_INDEX) {
@@ -563,14 +601,16 @@ public class DctController extends Handler {
         return phoneId;
     }
 
-    private void onSubInfoReady() {
+    protected void onSubInfoReady() {
         logd("onSubInfoReady mPhoneNum=" + mPhoneNum);
+        UiccController uiccController = UiccController.getInstance();
         for (int i = 0; i < mPhoneNum; ++i) {
+            UiccCard card = uiccController.getUiccCard(i);
             int subId = mPhones[i].getSubId();
             logd("onSubInfoReady handle pending requests subId=" + subId);
-            SubscriptionInfo subInfo = mSubMgr.getActiveSubscriptionInfoForSimSlotIndex(i);
-            if (subInfo == null) {  // No sim in slot
-                logd("onSubInfoReady: subInfo = null");
+            if ((card == null) || (card.getCardState() ==
+                    IccCardStatus.CardState.CARDSTATE_ABSENT)) {
+                logd("onSubInfoReady: SIM card absent on phoneId = " + i);
                 PhoneBase phoneBase = (PhoneBase)mPhones[i].getActivePhone();
                 DcTrackerBase dcTracker = phoneBase.mDcTracker;
                 if (dcTracker.isApnTypeActive(PhoneConstants.APN_TYPE_DEFAULT)) {
@@ -836,6 +876,25 @@ public class DctController extends Handler {
             pw.decreaseIndent();
             pw.decreaseIndent();
         }
+    }
+
+    protected void setDataAllowedOnPhoneId(int phoneId, boolean dataAllowed) {
+        if (SubscriptionManager.isValidPhoneId(phoneId)) {
+            mIsDataAllowed[phoneId].set(dataAllowed);
+        }
+    }
+
+    public boolean isDataAllowedOnPhoneId(int phoneId) {
+        return SubscriptionManager.isValidPhoneId(phoneId) &&
+                mIsDataAllowed[phoneId].get();
+    }
+
+    public boolean isDdsSwitchNeeded() {
+        return mNeedsDdsSwitch.get();
+    }
+
+    public void resetDdsSwitchNeededFlag() {
+        mNeedsDdsSwitch.set(false);
     }
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
