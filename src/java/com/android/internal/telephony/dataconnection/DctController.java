@@ -32,6 +32,7 @@ import android.os.Message;
 import android.os.Messenger;
 import android.provider.Settings;
 import android.telephony.Rlog;
+import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.SubscriptionManager.OnSubscriptionsChangedListener;
 import android.text.TextUtils;
@@ -573,6 +574,7 @@ public class DctController extends Handler {
             if (requestInfo.priority > priority) {
                 priority = requestInfo.priority;
                 topSubId = requestInfo.request.networkCapabilities.getNetworkSpecifier();
+                retRequestInfo = requestInfo;
             } else if (priority == requestInfo.priority) {
                 if (requestInfo.executedPhoneId == activePhoneId) {
                     topSubId = requestInfo.request.networkCapabilities.getNetworkSpecifier();
@@ -608,9 +610,9 @@ public class DctController extends Handler {
             UiccCard card = uiccController.getUiccCard(i);
             int subId = mPhones[i].getSubId();
             logd("onSubInfoReady handle pending requests subId=" + subId);
-            if ((card == null) || (card.getCardState() ==
-                    IccCardStatus.CardState.CARDSTATE_ABSENT)) {
-                logd("onSubInfoReady: SIM card absent on phoneId = " + i);
+            SubscriptionInfo subInfo = mSubMgr.getActiveSubscriptionInfoForSimSlotIndex(i);
+            if (subInfo == null) {  // No sim in slot
+                logd("onSubInfoReady: subInfo = null");
                 PhoneBase phoneBase = (PhoneBase)mPhones[i].getActivePhone();
                 DcTrackerBase dcTracker = phoneBase.mDcTracker;
                 if (dcTracker.isApnTypeActive(PhoneConstants.APN_TYPE_DEFAULT)) {
